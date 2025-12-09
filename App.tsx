@@ -1,12 +1,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Wallet, TrendingUp, Calendar as CalendarIcon, Trash2, BrainCircuit, Sparkles, AlertCircle, ArrowRight, CreditCard, PieChart } from 'lucide-react';
-import { Subscription, AIAnalysisResponse } from './types';
+import { Plus, Wallet, TrendingUp, Calendar as CalendarIcon, Trash2, BrainCircuit, Sparkles, AlertCircle, LogOut } from 'lucide-react';
+import { Subscription, AIAnalysisResponse, User, OnboardingData } from './types';
 import { SubscriptionForm } from './components/SubscriptionForm';
 import { DashboardCharts } from './components/DashboardCharts';
 import { CalendarView } from './components/CalendarView';
+import { LandingPage } from './components/LandingPage';
+import { OnboardingTour } from './components/OnboardingTour';
 import { analyzeSubscriptions } from './services/geminiService';
 
 const App: React.FC = () => {
+  // --- Auth & User State ---
+  const [user, setUser] = useState<User | null>(() => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const [isOnboarded, setIsOnboarded] = useState<boolean>(() => {
+    return localStorage.getItem('isOnboarded') === 'true';
+  });
+
+  // --- App Data State ---
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(() => {
     const saved = localStorage.getItem('subscriptions');
     return saved ? JSON.parse(saved) : [];
@@ -15,16 +28,34 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiInsights, setAiInsights] = useState<AIAnalysisResponse | null>(null);
 
+  // --- Effects ---
   useEffect(() => {
     localStorage.setItem('subscriptions', JSON.stringify(subscriptions));
   }, [subscriptions]);
 
-  // Derived State
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('user');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    localStorage.setItem('isOnboarded', String(isOnboarded));
+  }, [isOnboarded]);
+
+  // --- Derived State ---
   const totalMonthly = useMemo(() => 
     subscriptions.reduce((sum, sub) => sum + sub.price, 0),
   [subscriptions]);
 
   const totalYearly = totalMonthly * 12;
+
+  const budgetProgress = useMemo(() => {
+    if (!user?.monthlyBudget) return 0;
+    return Math.min(100, (totalMonthly / user.monthlyBudget) * 100);
+  }, [totalMonthly, user?.monthlyBudget]);
 
   const nextPayment = useMemo(() => {
     if (subscriptions.length === 0) return null;
@@ -55,7 +86,33 @@ const App: React.FC = () => {
     return 'Good evening';
   }, []);
 
-  // Handlers
+  // --- Handlers ---
+  const handleLogin = () => {
+    // Simulate creating a basic user session
+    setUser({
+      id: crypto.randomUUID(),
+      name: '',
+      email: 'user@example.com',
+      currency: 'USD'
+    });
+  };
+
+  const handleOnboardingComplete = (data: OnboardingData) => {
+    if (user) {
+      setUser({ ...user, name: data.name, monthlyBudget: data.budget });
+      setIsOnboarded(true);
+    }
+  };
+
+  const handleLogout = () => {
+    if(confirm("Are you sure you want to log out?")) {
+      setUser(null);
+      setIsOnboarded(false);
+      setSubscriptions([]);
+      localStorage.clear();
+    }
+  };
+
   const handleAddSubscription = (sub: Omit<Subscription, 'id'>) => {
     const newSub: Subscription = {
       ...sub,
@@ -80,6 +137,19 @@ const App: React.FC = () => {
     setIsAnalyzing(false);
   };
 
+  // --- View Logic ---
+  
+  // 1. Not Logged In -> Landing Page
+  if (!user) {
+    return <LandingPage onLogin={handleLogin} />;
+  }
+
+  // 2. Logged In but Not Onboarded -> Onboarding Tour
+  if (!isOnboarded) {
+    return <OnboardingTour onComplete={handleOnboardingComplete} />;
+  }
+
+  // 3. Main Dashboard
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-700">
       
@@ -108,6 +178,16 @@ const App: React.FC = () => {
             >
               <Plus size={20} />
             </button>
+            
+            <div className="h-6 w-px bg-slate-200 mx-1"></div>
+            
+            <button 
+              onClick={handleLogout}
+              className="text-slate-400 hover:text-red-500 transition-colors p-2"
+              title="Sign Out"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </div>
       </nav>
@@ -118,7 +198,7 @@ const App: React.FC = () => {
         <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4 animate-fade-in">
           <div>
             <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight mb-2">
-              {greeting}, User
+              {greeting}, {user.name}
             </h1>
             <p className="text-slate-500 font-medium">
               Here's what's happening with your recurring expenses today.
@@ -136,19 +216,41 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
           {/* Monthly Spend Card */}
           <div className="bg-white p-6 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <CreditCard size={80} className="text-indigo-600 transform rotate-12" />
-            </div>
             <p className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Monthly Cost</p>
-            <div className="flex items-baseline gap-1">
+            <div className="flex items-baseline gap-1 relative z-10">
               <span className="text-4xl font-bold text-slate-900">${totalMonthly.toFixed(2)}</span>
+              {user.monthlyBudget && user.monthlyBudget > 0 && (
+                 <span className="text-sm font-medium text-slate-400">/ ${user.monthlyBudget}</span>
+              )}
             </div>
-            <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
-              <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md font-medium">
-                ${totalYearly.toFixed(0)}
-              </span>
-              <span>projected yearly</span>
-            </div>
+            
+            {/* Budget Progress Bar */}
+            {user.monthlyBudget && user.monthlyBudget > 0 && (
+              <div className="mt-4">
+                <div className="flex justify-between text-xs font-medium mb-1.5">
+                   <span className={budgetProgress > 100 ? "text-red-500" : "text-emerald-600"}>
+                     {budgetProgress.toFixed(0)}% of budget
+                   </span>
+                </div>
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ${
+                      budgetProgress > 100 ? 'bg-red-500' : 'bg-emerald-500'
+                    }`} 
+                    style={{ width: `${Math.min(100, budgetProgress)}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+            
+            {!user.monthlyBudget && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+                <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md font-medium">
+                  ${totalYearly.toFixed(0)}
+                </span>
+                <span>projected yearly</span>
+              </div>
+            )}
           </div>
 
           {/* Active Subs Card */}

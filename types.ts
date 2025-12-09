@@ -24,3 +24,17 @@ export interface Insight {
 export interface AIAnalysisResponse {
   insights: Insight[];
 }
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  monthlyBudget?: number;
+  currency: string;
+}
+
+export interface OnboardingData {
+  name: string;
+  budget: number;
+}
